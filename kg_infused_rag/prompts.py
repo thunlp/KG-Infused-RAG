@@ -43,7 +43,7 @@ PROMPT_DICT = {
     "aug_passage": (
         "You are an expert in text enhancement and fact integration. Given a question, a retrieved passage, and relevant factual information, your task is to improve the passage by seamlessly incorporating useful details from the factual information. Ensure that the enhanced passage remains coherent, well-structured, and directly relevant to answering the question. Preserve the original meaning while making the passage more informative. Avoid introducing unrelated content.\n\n"
         "Question:\n{question}\n\n"
-        "Retrieved Passage:\n{passage}\n\n"
+        "Retrieved Passage:\n{passages}\n\n"
         "Relevant Factual Information:\n{facts}\n\n"
         "Enhanced passage:\n"
     ),
@@ -114,3 +114,229 @@ PROMPT_DICT = {
         "### Paragraph:\n{paragraph}\n\n### Instruction:\n{instruction}\n\n### Response:"
     )
 }
+
+
+def prompts_setup(args):
+    """
+    Setup all prompts for triples exploration, query expansion, passage augmentation, and answer generation.
+    Returns:
+        dict: All prompts keyed by usage (same keys as original pipeline expects).
+    """
+    prompt_dict = {}
+
+    # --- 1) Base prompts from config ---
+    base_prompts = {
+        "triples_selection": PROMPT_DICT[args.prompt_name_of_triples_selection],
+        "triples_update": PROMPT_DICT[args.prompt_name_of_triples_update],
+        "triples_summary": PROMPT_DICT[args.prompt_name_of_triples_summary],
+        "triples_based_qe": PROMPT_DICT[args.prompt_name_of_triples_based_qe],
+        "aug_passage": PROMPT_DICT[args.prompt_aug_passage],
+        "wo_retri": PROMPT_DICT[args.prompt_wo_retri],
+        "retri_raw": PROMPT_DICT[args.prompt_retri],
+    }
+    # passages_note prompts only if enabled (match original behavior)
+    if getattr(args, "passages_note", False):
+        base_prompts["passages_note"] = PROMPT_DICT[args.prompt_passages_note]
+        base_prompts["retri_raw"] = base_prompts["retri_raw"].replace("{passages}", "{passages_note}")
+    else:
+        base_prompts["passages_note"] = None  # do not create dependent prompts later
+
+
+    # --- 2) Static prompts outside rounds ---
+    prompt_dict["wo_retri"] = base_prompts["wo_retri"]
+    prompt_dict["aug_passage"] = base_prompts["aug_passage"]
+
+    if base_prompts["passages_note"]:
+        # when passages_note==True, retri_raw uses {passages_note}
+        prompt_retri_raw = base_prompts["retri_raw"].replace("{passages}", "{passages_note}")
+        prompt_dict["retri_raw"] = prompt_retri_raw
+        # retri_vanilla_qe also uses {passages_note}
+        prompt_dict["retri_vanilla_qe"] = prompt_retri_raw.replace("{passages_note}", "{passages_note_of_vanilla_qe}")
+        # also expose passages_note prompts (vanilla_qe note depends on it)
+        prompt_dict["passages_note"] = base_prompts["passages_note"]
+        prompt_dict["passages_note_vanilla_qe"] = base_prompts["passages_note"].replace("{passages}", "{passages_of_vanilla_qe}")
+    else:
+        # when passages_note==False, retri_raw uses {passages}
+        prompt_dict["retri_raw"] = base_prompts["retri_raw"]
+        prompt_dict["retri_vanilla_qe"] = base_prompts["retri_raw"].replace("{passages}", "{passages_of_vanilla_qe}")
+
+
+    # --- 3) Triples selection & update / summaries / QE per round ---
+    prompt_dict["triples_selection_of_round_0"] = base_prompts["triples_selection"].replace(
+        "{triples}", "{triples_text_of_round_0}"
+    )
+    for round_id in range(args.N_MAX_EXPLORE_ROUNDS):
+        pre_sel = f"{{selected_triples_text_of_round_{round_id-1}}}"
+        cur_triples = f"{{triples_text_of_round_{round_id}}}"
+        cur_new_triples = f"{{new_triples_text_of_round_{round_id}}}"
+        cur_sel = f"{{selected_triples_text_of_round_{round_id}}}"
+
+        # triples update (from round 1+)
+        if round_id >= 1:
+            prompt_dict[f"triples_update_of_round_{round_id}"] = (
+                base_prompts["triples_update"]
+                .replace("{previous_selected_triples}", pre_sel)
+                .replace("{new_retrieved_triples}", cur_new_triples)
+            )
+
+        # triples summary (before/after)
+        prompt_dict[f"triples_summary_before_selection_of_round_{round_id}"] = \
+            base_prompts["triples_summary"].replace("{selected_triples}", cur_triples)
+        prompt_dict[f"triples_summary_after_selection_of_round_{round_id}"] = \
+            base_prompts["triples_summary"].replace("{selected_triples}", cur_sel)
+
+        # triples-based QE (before/after)
+        prompt_dict[f"triples_based_qe_before_selection_of_round_{round_id}"] = \
+            base_prompts["triples_based_qe"].replace(
+                "{triples_summary}",
+                f"{{triples_summary_before_selection_of_round_{round_id}}}"
+            )
+        prompt_dict[f"triples_based_qe_after_selection_of_round_{round_id}"] = \
+            base_prompts["triples_based_qe"].replace(
+                "{triples_summary}",
+                f"{{triples_summary_after_selection_of_round_{round_id}}}"
+            )
+
+        # passages note and augmented passages (only if passages_note is enabled)
+        if base_prompts["passages_note"]:
+            # passages note for triples-based QE merged passages
+            prompt_dict[f"passages_note_triples_based_qe_before_selection_of_round_{round_id}"] = \
+                base_prompts["passages_note"].replace(
+                    "{passages}",
+                    f"{{passages_of_triples_based_qe_before_selection_of_round_{round_id}}}"
+                )
+            prompt_dict[f"passages_note_triples_based_qe_after_selection_of_round_{round_id}"] = \
+                base_prompts["passages_note"].replace(
+                    "{passages}",
+                    f"{{passages_of_triples_based_qe_after_selection_of_round_{round_id}}}"
+                )
+
+            # augmented passages with triples summary (raw passages or QE passages -> into a note)
+            # 1) raw passages + triples summary note
+            prompt_dict[f"aug_passage_with_triples_summary_before_selection_of_round_{round_id}"] = \
+                base_prompts["aug_passage"].replace(
+                    "{passages}", "{passages_note}"
+                ).replace(
+                    "{facts}", f"{{triples_summary_before_selection_of_round_{round_id}}}"
+                )
+            prompt_dict[f"aug_passage_with_triples_summary_after_selection_of_round_{round_id}"] = \
+                base_prompts["aug_passage"].replace(
+                    "{passages}", "{passages_note}"
+                ).replace(
+                    "{facts}", f"{{triples_summary_after_selection_of_round_{round_id}}}"
+                )
+
+            # 2) triples-based QE passages + triples summary note
+            prompt_dict[f"aug_triples_based_qe_passage_with_triples_summary_before_selection_of_round_{round_id}"] = \
+                base_prompts["aug_passage"].replace(
+                    "{passages}", f"{{passages_note_of_triples_based_qe_before_selection_of_round_{round_id}}}"
+                ).replace(
+                    "{facts}", f"{{triples_summary_before_selection_of_round_{round_id}}}"
+                )
+            prompt_dict[f"aug_triples_based_qe_passage_with_triples_summary_after_selection_of_round_{round_id}"] = \
+                base_prompts["aug_passage"].replace(
+                    "{passages}", f"{{passages_note_of_triples_based_qe_after_selection_of_round_{round_id}}}"
+                ).replace(
+                    "{facts}", f"{{triples_summary_after_selection_of_round_{round_id}}}"
+                )
+
+            # RAG generation prompts (match original branching)
+            if args.kg_based_qe:
+                prompt_dict[f"rag_with_triples_based_qe_passages_before_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages_note}",
+                        f"{{passages_note_of_triples_based_qe_before_selection_of_round_{round_id}}}"
+                    )
+                prompt_dict[f"rag_with_triples_based_qe_passages_after_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages_note}",
+                        f"{{passages_note_of_triples_based_qe_after_selection_of_round_{round_id}}}"
+                    )
+
+            if args.kg_aug_ag:
+                prompt_dict[f"rag_with_raw_passages_aug_triples_summary_before_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages_note}",
+                        f"{{passages_note_aug_triples_summary_before_selection_of_round_{round_id}}}"
+                    )
+                prompt_dict[f"rag_with_raw_passages_aug_triples_summary_after_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages_note}",
+                        f"{{passages_note_aug_triples_summary_after_selection_of_round_{round_id}}}"
+                    )
+
+            if args.kg_based_qe and args.kg_aug_ag:
+                prompt_dict[f"rag_with_triples_based_qe_passages_aug_triples_summary_before_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages_note}",
+                        f"{{passages_note_of_triples_based_qe_aug_triples_summary_before_selection_of_round_{round_id}}}"
+                    )
+                prompt_dict[f"rag_with_triples_based_qe_passages_aug_triples_summary_after_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages_note}",
+                        f"{{passages_note_of_triples_based_qe_aug_triples_summary_after_selection_of_round_{round_id}}}"
+                    )
+
+        else:
+            # augmented passages with triples summary (raw passages or QE passages -> into a note)
+            # 1) raw passages + triples summary note
+            prompt_dict[f"aug_passage_with_triples_summary_before_selection_of_round_{round_id}"] = \
+                base_prompts["aug_passage"].replace(
+                    "{facts}", f"{{triples_summary_before_selection_of_round_{round_id}}}"
+                )
+            prompt_dict[f"aug_passage_with_triples_summary_after_selection_of_round_{round_id}"] = \
+                base_prompts["aug_passage"].replace(
+                    "{facts}", f"{{triples_summary_after_selection_of_round_{round_id}}}"
+                )
+            # 2) triples-based QE passages + triples summary note
+            prompt_dict[f"aug_triples_based_qe_passage_with_triples_summary_before_selection_of_round_{round_id}"] = \
+                base_prompts["aug_passage"].replace(
+                    "{passages}", f"{{passages_of_triples_based_qe_before_selection_of_round_{round_id}}}"
+                ).replace(
+                    "{facts}", f"{{triples_summary_before_selection_of_round_{round_id}}}"
+                )
+            prompt_dict[f"aug_triples_based_qe_passage_with_triples_summary_after_selection_of_round_{round_id}"] = \
+                base_prompts["aug_passage"].replace(
+                    "{passages}", f"{{passages_of_triples_based_qe_after_selection_of_round_{round_id}}}"
+                ).replace(
+                    "{facts}", f"{{triples_summary_after_selection_of_round_{round_id}}}"
+                )
+
+            # RAG generation prompts (match original branching)
+            if args.kg_based_qe:
+                prompt_dict[f"rag_with_triples_based_qe_passages_before_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages}",
+                        f"{{passages_of_triples_based_qe_before_selection_of_round_{round_id}}}"
+                    )
+                prompt_dict[f"rag_with_triples_based_qe_passages_after_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages}",
+                        f"{{passages_of_triples_based_qe_after_selection_of_round_{round_id}}}"
+                    )
+
+            if args.kg_aug_ag:
+                prompt_dict[f"rag_with_raw_passages_aug_triples_summary_before_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages}",
+                        f"{{passages_aug_triples_summary_before_selection_of_round_{round_id}}}"
+                    )
+                prompt_dict[f"rag_with_raw_passages_aug_triples_summary_after_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages}",
+                        f"{{passages_aug_triples_summary_after_selection_of_round_{round_id}}}"
+                    )
+
+            if args.kg_based_qe and args.kg_aug_ag:
+                prompt_dict[f"rag_with_triples_based_qe_passages_aug_triples_summary_before_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages}",
+                        f"{{passages_of_triples_based_qe_aug_triples_summary_before_selection_of_round_{round_id}}}"
+                    )
+                prompt_dict[f"rag_with_triples_based_qe_passages_aug_triples_summary_after_selection_of_round_{round_id}"] = \
+                    base_prompts["retri_raw"].replace(
+                        "{passages}",
+                        f"{{passages_of_triples_based_qe_aug_triples_summary_after_selection_of_round_{round_id}}}"
+                    )
+
+    return prompt_dict

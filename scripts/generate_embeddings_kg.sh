@@ -10,7 +10,7 @@ MODEL_DIR="facebook/contriever-msmarco"
 model_name=$(basename "$MODEL_DIR")
 
 # KG
-knowledge_source="/data/KG/wikidata5m_kg.jsonl"
+knowledge_source="./data/KG/wikidata5m_kg.jsonl"
 knowledge_name="wikidata5m_kg"
 knowledge_type="kg"
 kg_embedding_text="entity_description"
@@ -18,9 +18,9 @@ kg_embedding_text="entity_description"
 knowledge_source_dir=$(dirname "$knowledge_source")
 
 if [[ "$knowledge_type" == "passages" ]]; then
-    OUTPUT_DIR="/data/corpus/$knowledge_name/embeddings-shards-$NUM_SHARDS/$model_name"
+    OUTPUT_DIR="./data/corpus/$knowledge_name/embeddings-shards-$NUM_SHARDS/$model_name"
 else
-    OUTPUT_DIR="/data/KG/$knowledge_name/embeddings-shards-$NUM_SHARDS/$model_name/$kg_embedding_text"
+    OUTPUT_DIR="./data/KG/$knowledge_name/embeddings-shards-$NUM_SHARDS/$model_name/$kg_embedding_text"
 fi
 
 # Log

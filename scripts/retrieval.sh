@@ -6,21 +6,21 @@ MODEL_DIR="facebook/contriever-msmarco"
 model_name=$(basename "$MODEL_DIR")
 
 # Corpus Config
-corpus_source="/data/corpus/psgs_w100.tsv"
+corpus_source="./data/corpus/psgs_w100.tsv"
 corpus_name="psgs_w100"
 NUM_SHARDS=4
-corpus_embeddings="/data/corpus/$corpus_name/embeddings-shards-$NUM_SHARDS/$model_name"
+corpus_embeddings="./data/corpus/$corpus_name/embeddings-shards-$NUM_SHARDS/$model_name"
 
 # KG config
-kg_source="/data/KG/wikidata5m_kg.jsonl"
+kg_source="./data/KG/wikidata5m_kg.jsonl"
 kg_name="wikidata5m_kg"
 kg_embedding_text="entity_description"
 NUM_SHARDS_KG=4
-kg_embeddings="/data/KG/$kg_name/embeddings-shards-$NUM_SHARDS_KG/$model_name/$kg_embedding_text"
+kg_embeddings="./data/KG/$kg_name/embeddings-shards-$NUM_SHARDS_KG/$model_name/$kg_embedding_text"
 
 
 # Dataset Config
-dataset_base_dir="/data/datasets/eval_data"
+dataset_base_dir="./data/datasets/eval_data"
 
 dataset_name="2wikimqa"
 DATASET_DIR="$dataset_base_dir/2wikimqa/test.json"

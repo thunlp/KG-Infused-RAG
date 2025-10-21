@@ -36,7 +36,8 @@ class KgRetriever:
         self.relation_alias_data_mapping = self.reverse_entity_mapping(self.relation_alias_data, relation_name_to_id_path)
 
         print("Data loading complete!")
-
+        # del self.entity_alias_data
+        # del self.relation_alias_data
 
     def create_directory(self, path):
         """Create directory if it does not exist."""
@@ -134,7 +135,7 @@ class KgRetriever:
     def get_entity_names_batch(self, entity_ids):
         """Given a list of entity IDs, return a dictionary mapping each ID to its entity names."""
         return {entity_id: self.entity_alias_data.get(entity_id, ["Entity not found"]) for entity_id in entity_ids}
-    
+
     def get_entity_id(self, entity_name):
         """Given an entity name, return its entity id."""
         return self.entity_alias_data_reverse.get(entity_name, ["Entity not found"])

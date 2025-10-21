@@ -10,16 +10,16 @@ MODEL_DIR="facebook/contriever-msmarco"
 model_name=$(basename "$MODEL_DIR")
 
 # Corpus
-knowledge_source="/data/corpus/psgs_w100.tsv"
+knowledge_source="./data/corpus/psgs_w100.tsv"
 knowledge_name="psgs_w100"
 knowledge_type="passages"
 
 knowledge_source_dir=$(dirname "$knowledge_source")
 
 if [[ "$knowledge_type" == "passages" ]]; then
-    OUTPUT_DIR="/data/corpus/$knowledge_name/embeddings-shards-$NUM_SHARDS/$model_name"
+    OUTPUT_DIR="./data/corpus/$knowledge_name/embeddings-shards-$NUM_SHARDS/$model_name"
 else
-    OUTPUT_DIR="/data/KG/$knowledge_name/embeddings-shards-$NUM_SHARDS/$model_name/$kg_embedding_text"
+    OUTPUT_DIR="./data/KG/$knowledge_name/embeddings-shards-$NUM_SHARDS/$model_name/$kg_embedding_text"
 fi
 
 # Log
